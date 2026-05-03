@@ -69,12 +69,12 @@ alembic upgrade head
 
 ## Related repositories
 
-This backend is one part of the FinFlow split layout on GitHub:
+| Repo | URL |
+|------|-----|
+| **FinFlow — Main Repo** (submodules umbrella) | https://github.com/ChamathDilshanC/FinFlow---Main-Repo |
+| **FinFlow — Frontend** | https://github.com/ChamathDilshanC/FinFlow---Frontend |
 
-- **FinFlow — Main Repo** — umbrella repository that includes `frontend` and `backend` as **Git submodules** (clone with `git clone --recurse-submodules <main-repo-url>`).
-- **FinFlow — Frontend** — client application repository.
-
-Open your GitHub profile or organization to find the exact repository URLs after publishing.
+Clone the full tree: `git clone --recurse-submodules https://github.com/ChamathDilshanC/FinFlow---Main-Repo.git`
 
 ## Contributing & attribution
 
