@@ -11,6 +11,8 @@ from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import jwt
+
 from app.application.services.auth_service import AuthService
 from app.application.services.budget_allocation_service import BudgetAllocationService
 from app.application.services.category_service import CategoryService
@@ -22,7 +24,8 @@ from app.application.services.subscription_service import SubscriptionService
 from app.application.services.transaction_service import TransactionService
 from app.config import Settings, get_settings
 from app.core.exceptions import AppHTTPException
-from app.core.security import decode_access_token, parse_user_id_from_payload
+from app.core.supabase_jwt import parse_supabase_user_identity, verify_supabase_access_token
+from app.domain.exceptions import IdentityEmailConflictError
 from app.infrastructure.database.session import get_db_session
 from app.infrastructure.repositories.budget_allocation_repository import SqlAlchemyBudgetAllocationRepository
 from app.infrastructure.repositories.category_repository import SqlAlchemyCategoryRepository
@@ -38,11 +41,10 @@ _http_bearer = HTTPBearer(auto_error=False)
 
 async def get_auth_service(
     session: AsyncSession = Depends(get_db_session),
-    settings: Settings = Depends(get_settings),
 ) -> AuthService:
     """Resolve an :class:`AuthService` bound to the request session."""
     users = SqlAlchemyUserRepository(session)
-    return AuthService(users, settings)
+    return AuthService(users)
 
 
 async def get_subscription_service(
@@ -119,12 +121,16 @@ async def get_exchange_rate_service(
 async def get_current_user_id(
     credentials: HTTPAuthorizationCredentials | None = Depends(_http_bearer),
     settings: Settings = Depends(get_settings),
+    auth_service: AuthService = Depends(get_auth_service),
 ) -> UUID:
     """
-    Require ``Authorization: Bearer <jwt>`` and return the embedded user id.
+    Validate ``Authorization: Bearer <Supabase access token>``, upsert local user, return id.
+
+    The JWT ``sub`` must equal ``users.id`` (Supabase ``auth.users`` UUID).
 
     Raises:
         AppHTTPException: 401 when the token is missing or invalid.
+        AppHTTPException: 409 when email conflicts with another account.
     """
     if credentials is None or not credentials.credentials:
         raise AppHTTPException(
@@ -133,21 +139,29 @@ async def get_current_user_id(
             status_code=401,
         )
     try:
-        payload = decode_access_token(credentials.credentials, settings)
-        if payload.get("token_type") != "access":
-            raise AppHTTPException(
-                detail="Invalid token type",
-                code="INVALID_TOKEN_TYPE",
-                status_code=401,
-            )
-        return parse_user_id_from_payload(payload)
+        payload = verify_supabase_access_token(credentials.credentials, settings)
+        supabase_sub, email = parse_supabase_user_identity(payload)
+        user = await auth_service.sync_supabase_user(supabase_sub, email)
+        return user.id
     except AppHTTPException:
         raise
-    except ValueError as exc:
+    except jwt.PyJWTError as exc:
         raise AppHTTPException(
             detail="Could not validate credentials",
             code="INVALID_TOKEN",
             status_code=401,
+        ) from exc
+    except ValueError as exc:
+        raise AppHTTPException(
+            detail=str(exc),
+            code="INVALID_TOKEN",
+            status_code=401,
+        ) from exc
+    except IdentityEmailConflictError as exc:
+        raise AppHTTPException(
+            detail=exc.message,
+            code=exc.code,
+            status_code=409,
         ) from exc
 
 

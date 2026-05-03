@@ -1,115 +1,73 @@
 """
-Authentication use cases: registration, login, and profile reads/updates.
-
-Repositories encapsulate persistence; this module coordinates validation and tokens.
+Authentication: sync Supabase-authenticated users into the app ``users`` table
+and profile reads/updates.
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from app.config import Settings
-from app.core.security import create_access_token, hash_password, verify_password
 from app.domain.entities.user import User
-from app.domain.exceptions import EmailAlreadyRegisteredError, InvalidCredentialsError, UserNotFoundError
+from app.domain.exceptions import IdentityEmailConflictError, UserNotFoundError
 from app.domain.repositories.user_repository import UserRepository
 
 
 @dataclass(slots=True)
-class AuthTokens:
-    """
-    Token bundle returned by authentication flows.
-
-    Attributes:
-        access_token: Bearer token for API authorization (MVP).
-        token_type: Always ``bearer`` for OAuth2-compatible clients.
-        expires_in: Access token lifetime in seconds (informational).
-        refresh_token: Reserved for refresh-token support (``None`` in MVP).
-    """
-
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int | None = None
-    refresh_token: str | None = None
-
-
 class AuthService:
     """
-    Register and authenticate users; issue JWT access tokens.
+    Map Supabase identities to local user rows and maintain profile fields.
 
     Args:
         user_repository: User persistence port.
-        settings: JWT and password policy configuration.
     """
 
-    def __init__(self, user_repository: UserRepository, settings: Settings) -> None:
-        self._users = user_repository
-        self._settings = settings
+    _users: UserRepository
 
-    async def register(self, email: str, password: str) -> AuthTokens:
+    async def sync_supabase_user(self, supabase_sub: UUID, email: str) -> User:
         """
-        Create a new user after uniqueness checks and return access token.
+        Ensure a ``users`` row exists for the Supabase ``auth.users`` id (JWT ``sub``).
 
-        Args:
-            email: Login email (normalized to lowercase).
-            password: Plaintext password to hash.
-
-        Returns:
-            :class:`AuthTokens` containing a new access JWT.
+        Uses ``users.id == sub`` so foreign keys across the app stay aligned.
 
         Raises:
-            EmailAlreadyRegisteredError: When the email is taken.
+            IdentityEmailConflictError: When ``email`` is taken by another ``id``.
         """
         normalized = email.strip().lower()
-        existing = await self._users.get_by_email(normalized)
-        if existing:
-            raise EmailAlreadyRegisteredError()
-
+        existing = await self._users.get_by_id(supabase_sub)
         now = datetime.now(tz=UTC)
+
+        if existing:
+            if existing.email != normalized:
+                updated = User(
+                    id=existing.id,
+                    email=normalized,
+                    hashed_password=existing.hashed_password,
+                    monthly_budget=existing.monthly_budget,
+                    default_currency=existing.default_currency,
+                    created_at=existing.created_at,
+                    updated_at=now,
+                )
+                return await self._users.update(updated)
+            return existing
+
+        other = await self._users.get_by_email(normalized)
+        if other is not None and other.id != supabase_sub:
+            raise IdentityEmailConflictError()
+
         user = User(
-            id=uuid4(),
+            id=supabase_sub,
             email=normalized,
-            hashed_password=hash_password(password),
+            hashed_password=None,
             monthly_budget=None,
             default_currency=None,
             created_at=now,
             updated_at=now,
         )
-        created = await self._users.create(user)
-        token = create_access_token(subject_user_id=created.id, settings=self._settings)
-        return AuthTokens(
-            access_token=token,
-            expires_in=self._settings.access_token_expire_minutes * 60,
-            refresh_token=None,
-        )
-
-    async def login(self, email: str, password: str) -> AuthTokens:
-        """
-        Verify credentials and mint an access token.
-
-        Args:
-            email: Login email.
-            password: Plaintext password attempt.
-
-        Returns:
-            :class:`AuthTokens` for successful authentication.
-
-        Raises:
-            InvalidCredentialsError: When login fails.
-        """
-        normalized = email.strip().lower()
-        user = await self._users.get_by_email(normalized)
-        if user is None or not verify_password(password, user.hashed_password):
-            raise InvalidCredentialsError()
-
-        token = create_access_token(subject_user_id=user.id, settings=self._settings)
-        return AuthTokens(
-            access_token=token,
-            expires_in=self._settings.access_token_expire_minutes * 60,
-            refresh_token=None,
-        )
+        return await self._users.create(user)
 
     async def get_user(self, user_id: UUID) -> User:
         """
@@ -124,16 +82,7 @@ class AuthService:
         return user
 
     async def update_monthly_budget(self, user_id: UUID, monthly_budget: Decimal | None) -> User:
-        """
-        Update the user's global monthly budget cap used by dashboard analytics.
-
-        Args:
-            user_id: Authenticated user id.
-            monthly_budget: New cap, or ``None`` to clear.
-
-        Returns:
-            Updated user entity.
-        """
+        """Update the user's global monthly budget cap used by dashboard analytics."""
         user = await self.get_user(user_id)
         now = datetime.now(tz=UTC)
         updated = User(

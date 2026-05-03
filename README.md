@@ -1,6 +1,6 @@
 # FinFlow — Backend
 
-FastAPI-based REST API for **FinFlow**: subscriptions, transactions, categories, budgets, payments, exchange rates, and dashboard aggregates. Uses async SQLAlchemy, Alembic migrations, and JWT authentication.
+FastAPI-based REST API for **FinFlow**: subscriptions, transactions, categories, budgets, payments, exchange rates, and dashboard aggregates. Uses async SQLAlchemy, Alembic migrations, and **[Supabase Auth](https://supabase.com/docs/guides/auth)** JWT verification (ES256 via JWKS; optional legacy HS256).
 
 ## Stack
 
@@ -10,7 +10,7 @@ FastAPI-based REST API for **FinFlow**: subscriptions, transactions, categories,
 | Framework | FastAPI |
 | Database | PostgreSQL (async via `asyncpg`; Supabase-compatible) |
 | Migrations | Alembic |
-| Auth | JWT (HS256), password hashing with `bcrypt` |
+| Auth | Supabase access JWT (`Authorization: Bearer …`), local user row synced from `sub` + `email` |
 
 ## Repository layout (Clean Architecture)
 
@@ -39,13 +39,13 @@ python -m venv .venv
 # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# Edit .env — set DATABASE_URL, JWT_SECRET, CORS_ORIGINS, etc.
+# Edit .env — set DATABASE_URL, SUPABASE_URL, optional SUPABASE_JWT_LEGACY_HS256_SECRET, CORS_ORIGINS
 alembic upgrade head
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 - **Health check:** `GET http://localhost:8000/health`  
-- **API base:** `/api/v1` (e.g. `/api/v1/auth/register`, `/api/v1/dashboard`)
+- **API base:** `/api/v1` — send `Authorization: Bearer` plus the **Supabase session `access_token`** on protected routes (e.g. `/api/v1/auth/me`, `/api/v1/dashboard`)
 
 ## Environment variables
 
@@ -55,7 +55,9 @@ Copy `.env.example` to `.env`. Important keys:
 |----------|---------|
 | `DATABASE_URL` | `postgresql+asyncpg://...` async URL |
 | `DATABASE_USE_POOLER` | `true` when using Supabase PgBouncer (transaction mode) |
-| `JWT_SECRET` | Strong secret for signing tokens |
+| `SUPABASE_URL` | `https://&lt;project-ref&gt;.supabase.co` — used for JWKS (`…/auth/v1/.well-known/jwks.json`) and default JWT issuer |
+| `SUPABASE_JWT_LEGACY_HS256_SECRET` | Optional: legacy symmetric secret if tokens are still HS256 during JWT key rotation |
+| `SUPABASE_JWT_ISSUER` / `SUPABASE_JWT_AUDIENCE` | Optional overrides for JWT `iss` / `aud` validation |
 | `CORS_ORIGINS` | Comma-separated allowed origins for browser/mobile clients |
 
 Never commit `.env`.

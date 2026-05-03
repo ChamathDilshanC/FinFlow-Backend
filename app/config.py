@@ -21,9 +21,10 @@ class Settings(BaseSettings):
         database_url: Async SQLAlchemy URL (``postgresql+asyncpg://...``).
         database_use_pooler: When True, applies asyncpg options compatible with
             PgBouncer transaction pooling (e.g. Supabase pooler on port 6543).
-        jwt_secret: Symmetric key for signing JWT access tokens.
-        jwt_algorithm: JWT signing algorithm (default HS256).
-        access_token_expire_minutes: Access token TTL (MVP).
+        supabase_url: HTTPS origin for JWKS and JWT issuer (no trailing path).
+        supabase_jwt_legacy_hs256_secret: Optional legacy symmetric secret for HS256 tokens.
+        supabase_jwt_issuer: Override JWT ``iss`` validation (default ``{supabase_url}/auth/v1``).
+        supabase_jwt_audience: JWT ``aud`` claim (default ``authenticated``).
         refresh_token_expire_days: Reserved for future refresh-token flow.
         log_level: Root logging level.
         log_format: ``json`` for structured logs; ``text`` for console-friendly lines.
@@ -45,9 +46,22 @@ class Settings(BaseSettings):
     )
     database_use_pooler: bool = False
 
-    jwt_secret: str = Field(..., min_length=16)
-    jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 30
+    supabase_url: str = Field(
+        ...,
+        description="Project URL, e.g. https://YOUR_PROJECT.supabase.co",
+    )
+    supabase_jwt_legacy_hs256_secret: str | None = Field(
+        default=None,
+        description="Legacy JWT Secret (HS256). Used only if ES256/JWKS verification fails.",
+    )
+    supabase_jwt_issuer: str | None = Field(
+        default=None,
+        description="Expected JWT iss claim; defaults to {SUPABASE_URL}/auth/v1",
+    )
+    supabase_jwt_audience: str = Field(
+        default="authenticated",
+        description="Expected JWT aud claim for Supabase user access tokens",
+    )
     refresh_token_expire_days: int = 7  # Reserved for refresh-token support
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
@@ -67,6 +81,16 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         """Return parsed CORS origins as a list."""
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @field_validator("supabase_url", mode="before")
+    @classmethod
+    def normalize_supabase_url(cls, v: str) -> str:
+        """Require HTTPS and strip trailing slashes from the Supabase project URL."""
+        s = str(v).strip().rstrip("/")
+        if not s.lower().startswith("https://"):
+            msg = "SUPABASE_URL must use https://"
+            raise ValueError(msg)
+        return s
 
     @property
     def database_url_sync(self) -> str:

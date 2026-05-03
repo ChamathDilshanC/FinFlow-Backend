@@ -38,6 +38,16 @@ class UserNotFoundError(DomainError):
         super().__init__(message, code="USER_NOT_FOUND")
 
 
+class IdentityEmailConflictError(DomainError):
+    """Raised when JWT email is already linked to a different user id."""
+
+    def __init__(
+        self,
+        message: str = "Email is already linked to another account",
+    ) -> None:
+        super().__init__(message, code="IDENTITY_EMAIL_CONFLICT")
+
+
 class CategoryNotFoundError(DomainError):
     """Raised when a category is missing or not owned."""
 

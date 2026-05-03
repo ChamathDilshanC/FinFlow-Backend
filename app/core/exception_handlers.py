@@ -2,10 +2,10 @@
 Register global exception handlers for consistent error responses.
 """
 
+import jwt
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from jose import JWTError
 
 from app.core.exceptions import AppHTTPException
 
@@ -41,8 +41,8 @@ def register_exception_handlers(app: FastAPI) -> None:
             content={"detail": detail, "code": "VALIDATION_ERROR"},
         )
 
-    @app.exception_handler(JWTError)
-    async def jwt_error_handler(_request: Request, _exc: JWTError) -> JSONResponse:
+    @app.exception_handler(jwt.PyJWTError)
+    async def jwt_error_handler(_request: Request, _exc: jwt.PyJWTError) -> JSONResponse:
         return JSONResponse(
             status_code=401,
             content={"detail": "Could not validate credentials", "code": "INVALID_TOKEN"},

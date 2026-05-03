@@ -26,7 +26,7 @@ class UserModel(Base):
         default=uuid4,
     )
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
-    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     monthly_budget: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     default_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
 
