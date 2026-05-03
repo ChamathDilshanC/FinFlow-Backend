@@ -1,0 +1,22 @@
+# FastAPI & server
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+
+# Async DB
+sqlalchemy[asyncio]>=2.0.36
+asyncpg>=0.30.0
+
+# Migrations (Alembic uses a sync driver; Supabase/Postgres compatible)
+alembic>=1.14.0
+psycopg2-binary>=2.9.10
+
+# Settings & validation
+pydantic[email]>=2.10.0
+pydantic-settings>=2.6.0
+
+# Auth (bcrypt used directly; passlib dropped — incompatible with bcrypt 5.x backends)
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.2.0
+
+# Observability
+python-json-logger>=3.2.1
