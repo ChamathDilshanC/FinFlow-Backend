@@ -5,8 +5,10 @@ Protected handlers expect ``Authorization: Bearer <Supabase access_token>``.
 """
 
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 
 from app.api.v1.dependencies import CurrentUserId, get_auth_service
 from app.api.v1.schemas.auth import (
@@ -27,6 +29,43 @@ from app.core.supabase_auth_http import (
 from app.domain.exceptions import DomainError, IdentityEmailConflictError, UserNotFoundError
 
 router = APIRouter()
+
+_ALLOWED_OAUTH_BRIDGE_SCHEMES = frozenset({"exp", "finflow"})
+
+
+@router.get("/oauth-bridge")
+async def oauth_bridge(request: Request) -> RedirectResponse:
+    """
+    Supabase redirects here with ``code`` / ``state`` (HTTPS), then we 302 to the app deep link.
+
+    iOS ``ASWebAuthenticationSession`` sometimes mis-handles a direct ``exp://`` redirect from
+    Supabase; an intermediate stable HTTPS URL avoids Safari showing ``localhost`` (Site URL)
+    or a broken final hop.
+    """
+    pairs = list(request.query_params.multi_items())
+    next_url: str | None = None
+    oauth_pairs: list[tuple[str, str]] = []
+    for key, value in pairs:
+        if key == "next" and next_url is None:
+            next_url = value
+        elif key != "next":
+            oauth_pairs.append((key, value))
+
+    if not next_url:
+        raise HTTPException(status_code=400, detail="Missing next query parameter")
+
+    dest = urlparse(next_url)
+    if dest.scheme not in _ALLOWED_OAUTH_BRIDGE_SCHEMES:
+        raise HTTPException(
+            status_code=400,
+            detail="next must be exp:// (Expo Go) or finflow:// (dev build)",
+        )
+
+    merged_query = urlencode(parse_qsl(dest.query, keep_blank_values=True) + oauth_pairs)
+    location = urlunparse(
+        (dest.scheme, dest.netloc, dest.path, dest.params, merged_query, dest.fragment),
+    )
+    return RedirectResponse(url=location, status_code=302)
 
 
 def _map_domain(exc: DomainError) -> AppHTTPException:
