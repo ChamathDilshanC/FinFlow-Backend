@@ -1,21 +1,30 @@
 """
-Authenticated user profile routes.
+Auth routes: email/password register and login via **Supabase Auth** REST, profile under JWT.
 
-Sign-up and password login are handled by **Supabase Auth** on the frontend; this API
-expects ``Authorization: Bearer <Supabase access_token>``.
+Protected handlers expect ``Authorization: Bearer <Supabase access_token>``.
 """
+
+from typing import Any
 
 from fastapi import APIRouter, Depends
 
 from app.api.v1.dependencies import CurrentUserId, get_auth_service
 from app.api.v1.schemas.auth import (
+    AuthSessionResponse,
+    EmailPasswordRequest,
     UpdateBudgetRequest,
     UserProfilePatch,
     UserResponse,
 )
 from app.application.services.auth_service import AuthService
+from app.config import Settings, get_settings
 from app.core.exceptions import AppHTTPException
-from app.domain.exceptions import DomainError, UserNotFoundError
+from app.core.supabase_auth_http import (
+    SupabaseAuthHttpError,
+    signin_email_password,
+    signup_email_password,
+)
+from app.domain.exceptions import DomainError, IdentityEmailConflictError, UserNotFoundError
 
 router = APIRouter()
 
@@ -25,6 +34,124 @@ def _map_domain(exc: DomainError) -> AppHTTPException:
     if isinstance(exc, UserNotFoundError):
         return AppHTTPException(detail=exc.message, code=exc.code, status_code=404)
     return AppHTTPException(detail=exc.message, code=exc.code, status_code=400)
+
+
+def _http_status_for_supabase(exc: SupabaseAuthHttpError) -> int:
+    if 400 <= exc.status_code < 500:
+        return exc.status_code
+    return 502
+
+
+def _session_to_response_fields(session: dict[str, Any] | None) -> dict[str, Any]:
+    if not session:
+        return {
+            "access_token": None,
+            "refresh_token": None,
+            "expires_in": None,
+            "token_type": "bearer",
+        }
+    return {
+        "access_token": session.get("access_token"),
+        "refresh_token": session.get("refresh_token"),
+        "expires_in": session.get("expires_in"),
+        "token_type": str(session.get("token_type") or "bearer"),
+    }
+
+
+@router.post("/register", response_model=AuthSessionResponse)
+async def register_email_password(
+    body: EmailPasswordRequest,
+    settings: Settings = Depends(get_settings),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> AuthSessionResponse:
+    """
+    Register with email and password through Supabase Auth (Email provider must be enabled).
+
+    Syncs a local ``users`` row. If project **Confirm email** is on, tokens may be omitted until verification.
+    """
+    if not settings.supabase_anon_key:
+        raise AppHTTPException(
+            detail="Email/password auth is not configured (set SUPABASE_ANON_KEY)",
+            code="AUTH_NOT_CONFIGURED",
+            status_code=503,
+        )
+    try:
+        session, uid, email_norm, has_session = await signup_email_password(
+            settings, body.email, body.password
+        )
+        await auth_service.sync_supabase_user(uid, email_norm)
+    except SupabaseAuthHttpError as exc:
+        raise AppHTTPException(
+            detail=exc.message,
+            code="SUPABASE_AUTH_ERROR",
+            status_code=_http_status_for_supabase(exc),
+        ) from exc
+    except IdentityEmailConflictError as exc:
+        raise AppHTTPException(
+            detail=exc.message,
+            code=exc.code,
+            status_code=409,
+        ) from exc
+    except ValueError as exc:
+        raise AppHTTPException(
+            detail=str(exc),
+            code="BAD_AUTH_RESPONSE",
+            status_code=502,
+        ) from exc
+
+    fields = _session_to_response_fields(session)
+    return AuthSessionResponse(
+        **fields,
+        requires_email_confirmation=not has_session,
+        user_id=uid,
+        email=email_norm,
+    )
+
+
+@router.post("/login", response_model=AuthSessionResponse)
+async def login_email_password(
+    body: EmailPasswordRequest,
+    settings: Settings = Depends(get_settings),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> AuthSessionResponse:
+    """Sign in with email and password; returns Supabase session tokens for ``Authorization: Bearer``."""
+    if not settings.supabase_anon_key:
+        raise AppHTTPException(
+            detail="Email/password auth is not configured (set SUPABASE_ANON_KEY)",
+            code="AUTH_NOT_CONFIGURED",
+            status_code=503,
+        )
+    try:
+        session, uid, email_norm = await signin_email_password(
+            settings, body.email, body.password
+        )
+        await auth_service.sync_supabase_user(uid, email_norm)
+    except SupabaseAuthHttpError:
+        raise AppHTTPException(
+            detail="Invalid email or password",
+            code="INVALID_CREDENTIALS",
+            status_code=401,
+        ) from None
+    except IdentityEmailConflictError as exc:
+        raise AppHTTPException(
+            detail=exc.message,
+            code=exc.code,
+            status_code=409,
+        ) from exc
+    except ValueError as exc:
+        raise AppHTTPException(
+            detail=str(exc),
+            code="BAD_AUTH_RESPONSE",
+            status_code=502,
+        ) from exc
+
+    fields = _session_to_response_fields(session)
+    return AuthSessionResponse(
+        **fields,
+        requires_email_confirmation=False,
+        user_id=uid,
+        email=email_norm,
+    )
 
 
 @router.get("/me", response_model=UserResponse)

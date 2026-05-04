@@ -17,5 +17,8 @@ pydantic-settings>=2.6.0
 # Supabase JWT: ES256 via JWKS; optional HS256 legacy secret (PyJWT pulls cryptography)
 PyJWT[crypto]>=2.9.0
 
+# HTTP client (Supabase Auth REST)
+httpx>=0.28.0
+
 # Observability
 python-json-logger>=3.2.1

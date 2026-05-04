@@ -22,6 +22,7 @@ class Settings(BaseSettings):
         database_use_pooler: When True, applies asyncpg options compatible with
             PgBouncer transaction pooling (e.g. Supabase pooler on port 6543).
         supabase_url: HTTPS origin for JWKS and JWT issuer (no trailing path).
+        supabase_anon_key: Public anon key for Supabase Auth REST (email/password routes).
         supabase_jwt_legacy_hs256_secret: Optional legacy symmetric secret for HS256 tokens.
         supabase_jwt_issuer: Override JWT ``iss`` validation (default ``{supabase_url}/auth/v1``).
         supabase_jwt_audience: JWT ``aud`` claim (default ``authenticated``).
@@ -49,6 +50,10 @@ class Settings(BaseSettings):
     supabase_url: str = Field(
         ...,
         description="Project URL, e.g. https://YOUR_PROJECT.supabase.co",
+    )
+    supabase_anon_key: str | None = Field(
+        default=None,
+        description="Supabase anon (public) key — required for /auth/register and /auth/login only",
     )
     supabase_jwt_legacy_hs256_secret: str | None = Field(
         default=None,
