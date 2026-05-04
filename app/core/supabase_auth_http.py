@@ -54,7 +54,20 @@ def _parse_user_and_session(data: dict[str, Any]) -> tuple[dict[str, Any] | None
     """
     user = data.get("user")
     if not isinstance(user, dict):
-        user = {}
+        # Some GoTrue responses flatten user fields at the root.
+        user = data if isinstance(data.get("id"), (str, UUID)) else {}
+
+    # Fallback: infer email from identities payload when top-level email is missing.
+    if isinstance(user, dict) and not user.get("email"):
+        identities = user.get("identities")
+        if isinstance(identities, list):
+            for identity in identities:
+                if not isinstance(identity, dict):
+                    continue
+                identity_data = identity.get("identity_data")
+                if isinstance(identity_data, dict) and identity_data.get("email"):
+                    user = {**user, "email": identity_data.get("email")}
+                    break
     session = data.get("session")
     if isinstance(session, dict) and session.get("access_token"):
         return session, user
