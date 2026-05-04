@@ -47,6 +47,10 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 - **Health check:** `GET http://localhost:8000/health`  
 - **API base:** `/api/v1` — send `Authorization: Bearer` plus the **Supabase session `access_token`** on protected routes (e.g. `/api/v1/auth/me`, `/api/v1/dashboard`)
 
+## Vercel (`vercel.json` + root `main.py`)
+
+This repo ships **`vercel.json`** (legacy `@vercel/python` build) and a **root** `main.py` that only does `from app.main import app`, so the real app stays in `app/main.py`. In Vercel, set the project **Root Directory** to **`backend`**, add the same keys as `.env.example` under **Environment Variables**, then deploy. Run `alembic upgrade head` once against production (not inside the serverless bundle). For local work, keep using `uvicorn app.main:app`.
+
 ## Environment variables
 
 Copy `.env.example` to `.env`. Important keys:
