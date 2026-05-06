@@ -1,93 +1,61 @@
-# FinFlow — Backend
+# FinFlow Backend API
 
-FastAPI-based REST API for **FinFlow**: subscriptions, transactions, categories, budgets, payments, exchange rates, and dashboard aggregates. Uses async SQLAlchemy, Alembic migrations, and **[Supabase Auth](https://supabase.com/docs/guides/auth)** JWT verification (ES256 via JWKS; optional legacy HS256).
+Production-ready backend service for the FinFlow mobile app. This API handles authentication, transactions, subscriptions, budgets, categories, and dashboard analytics.
 
-## Stack
+## Technology Stack
 
-| Layer | Choice |
-|--------|--------|
-| Runtime | Python 3.x |
-| Framework | FastAPI |
-| Database | PostgreSQL (async via `asyncpg`; Supabase-compatible) |
-| Migrations | Alembic |
-| Auth | Supabase access JWT (`Authorization: Bearer …`), local user row synced from `sub` + `email` |
+| Area | Technologies (Name + Icon) |
+|---|---|
+| Backend Core | ![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white) ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white) ![Pydantic](https://img.shields.io/badge/Pydantic-E92063?logo=pydantic&logoColor=white) |
+| Data Layer | ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-336791?logo=postgresql&logoColor=white) ![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-D71F00?logo=sqlalchemy&logoColor=white) ![asyncpg](https://img.shields.io/badge/asyncpg-0B7285?logo=postgresql&logoColor=white) |
+| Migrations & Auth | ![Alembic](https://img.shields.io/badge/Alembic-4B5563?logo=databricks&logoColor=white) ![Supabase Auth](https://img.shields.io/badge/Supabase%20Auth-3ECF8E?logo=supabase&logoColor=white) ![JWT](https://img.shields.io/badge/JWT-000000?logo=jsonwebtokens&logoColor=white) |
+| Platform Integration | ![Git](https://img.shields.io/badge/Git-F05032?logo=git&logoColor=white) ![Main Repo](https://img.shields.io/badge/Main%20Repo-181717?logo=github&logoColor=white) ![Frontend](https://img.shields.io/badge/Frontend-61DAFB?logo=react&logoColor=black) |
 
-## Repository layout (Clean Architecture)
+## Architecture
 
-```
+```text
 app/
-├── api/v1/           # HTTP routes, Pydantic schemas
-├── application/      # Services (use cases)
-├── domain/           # Entities, repository protocols, exceptions
-├── infrastructure/   # SQLAlchemy models & repositories, DB session
-├── core/             # Security, logging, exception handlers
-└── main.py           # ASGI app factory
-alembic/              # Migrations
+|-- api/v1/            # Route handlers and schemas
+|-- application/       # Use-case services
+|-- domain/            # Entities and contracts
+|-- infrastructure/    # DB models/repositories/session
+|-- core/              # Security/logging/exceptions
+`-- main.py            # FastAPI app entry point
+alembic/               # Database migrations
 ```
 
-## Prerequisites
-
-- Python 3.11+ recommended  
-- PostgreSQL (local or [Supabase](https://supabase.com/) with **transaction pooler** on port `6543` when using pooler mode)
-
-## Setup
+## Local Setup
 
 ```bash
 cd backend
 python -m venv .venv
-# Windows: .venv\Scripts\Activate.ps1
-# macOS/Linux: source .venv/bin/activate
+# Windows:
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-cp .env.example .env
-# Edit .env — set DATABASE_URL, SUPABASE_URL, optional SUPABASE_JWT_LEGACY_HS256_SECRET, CORS_ORIGINS
+copy .env.example .env
 alembic upgrade head
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-- **Health check:** `GET http://localhost:8000/health`  
-- **API base:** `/api/v1` — send `Authorization: Bearer` plus the **Supabase session `access_token`** on protected routes (e.g. `/api/v1/auth/me`, `/api/v1/dashboard`)
+## Important Environment Variables
 
-## Vercel (`vercel.json` + root `main.py`)
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | Async PostgreSQL connection string |
+| `DATABASE_USE_POOLER` | Enable pooler mode when using Supabase PgBouncer |
+| `SUPABASE_URL` | Used for issuer and JWKS token validation |
+| `SUPABASE_JWT_LEGACY_HS256_SECRET` | Optional legacy HS256 support |
+| `SUPABASE_JWT_ISSUER` / `SUPABASE_JWT_AUDIENCE` | Optional token validation overrides |
+| `CORS_ORIGINS` | Comma-separated allowed origins |
 
-This repo ships **`vercel.json`** (legacy `@vercel/python` build) and a **root** `main.py` that only does `from app.main import app`, so the real app stays in `app/main.py`. In Vercel, set the project **Root Directory** to **`backend`**, add the same keys as `.env.example` under **Environment Variables**, then deploy. Run `alembic upgrade head` once against production (not inside the serverless bundle). For local work, keep using `uvicorn app.main:app`.
+## API Run & Health
 
-## Environment variables
+- Base URL: `http://localhost:8000`
+- API prefix: `/api/v1`
+- Health endpoint: `GET /health`
+- Protected routes require `Authorization: Bearer <access_token>`
 
-Copy `.env.example` to `.env`. Important keys:
+## Related Repositories
 
-| Variable | Purpose |
-|----------|---------|
-| `DATABASE_URL` | `postgresql+asyncpg://...` async URL |
-| `DATABASE_USE_POOLER` | `true` when using Supabase PgBouncer (transaction mode) |
-| `SUPABASE_URL` | `https://&lt;project-ref&gt;.supabase.co` — used for JWKS (`…/auth/v1/.well-known/jwks.json`) and default JWT issuer |
-| `SUPABASE_JWT_LEGACY_HS256_SECRET` | Optional: legacy symmetric secret if tokens are still HS256 during JWT key rotation |
-| `SUPABASE_JWT_ISSUER` / `SUPABASE_JWT_AUDIENCE` | Optional overrides for JWT `iss` / `aud` validation |
-| `CORS_ORIGINS` | Comma-separated allowed origins for browser/mobile clients |
-
-Never commit `.env`.
-
-## Database migrations
-
-```bash
-alembic revision --autogenerate -m "describe_change"
-alembic upgrade head
-```
-
-## Related repositories
-
-| Repo | URL |
-|------|-----|
-| **FinFlow — Main Repo** (submodules umbrella) | https://github.com/ChamathDilshanC/FinFlow---Main-Repo |
-| **FinFlow — Frontend** | https://github.com/ChamathDilshanC/FinFlow---Frontend |
-
-Clone the full tree: `git clone --recurse-submodules https://github.com/ChamathDilshanC/FinFlow---Main-Repo.git`
-
-## Contributing & attribution
-
-**Human maintainer:** [ChamathDilshanC](https://github.com/ChamathDilshanC).  
-
-Automated assistants and IDE tools (including **Cursor** / “Cursor Agent”) may be used during development; they are **not** listed as project contributors. Contributions are accepted only according to maintainer policy.
-
-## License
-
-Specify your license in this repo when you publish (e.g. MIT). Until then, all rights reserved by the maintainer unless stated otherwise.
+- Main: [FinFlow - Main Repo](https://github.com/ChamathDilshanC/FinFlow---Main-Repo)
+- Frontend: [FinFlow - Frontend](https://github.com/ChamathDilshanC/FinFlow---Frontend)
